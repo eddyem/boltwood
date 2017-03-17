@@ -32,6 +32,7 @@
 typedef struct{
     char *device;           // serial device name
     char *port;             // port to connect
+    int terminal;           // run as terminal
     int rest_pars_num;      // number of rest parameters
     char** rest_pars;       // the rest parameters: array of char*
 } glob_pars;

@@ -71,24 +71,6 @@ static uint16_t calcCRC16(const uint8_t *buf, int nBytes){
     return crc;
 }
 
-/**
- * Send command by serial port, return 0 if all OK
- *static uint8_t last_chksum = 0;
-int send_data(uint8_t *buf, int len){
-    if(len < 1) return 1;
-    uint8_t chksum = 0, *ptr = buf;
-    int l;
-    for(l = 0; l < len; ++l)
-        chksum ^= ~(*ptr++) & 0x7f;
-    DBG("send: %s (chksum: 0x%X)", buf, chksum);
-    if(write_tty(buf, len)) return 1;
-    DBG("cmd sent");
-    if(write_tty(&chksum, 1)) return 1;
-    DBG("checksum sent");
-    last_chksum = chksum;
-    return 0;
-}*/
-
 // send single symbol without CRC
 int send_symbol(uint8_t cmd){
     uint8_t s[5] = {FRAME_START, cmd, '\n', REQUEST_POLL, 0};
@@ -150,8 +132,8 @@ int send_cmd(uint8_t cmd){
  * Try to connect to `device` at given speed (or try all speeds, if speed == 0)
  * @return connection speed if success or 0
  */
-int try_connect(char *device){
-    if(!device) return 0;
+void try_connect(char *device){
+    if(!device) return;
     uint8_t tmpbuf[4096];
     green(_("Connecting to %s... "), device);
     fflush(stdout);
@@ -159,7 +141,6 @@ int try_connect(char *device){
     read_tty(tmpbuf, 4096); // clear rbuf
     green("Ok!");
     printf("\n\n");
-    return 0;
 }
 
 // check CRC and return 0 if all OK
@@ -234,3 +215,151 @@ void run_terminal(){
     }
 }
 
+/**
+ * parser
+ * @param buf (i) - data frame from sensor
+ * @param L       - its length
+ * @param d       - structure to fill
+ *  1. humidstatTempCode
+ *  2. cloudCond
+ *  3. windCond
+ *  4. rainCond
+ *  5. skyCond
+ *  6. roofCloseRequested
+ *  7. skyMinusAmbientTemperature
+ *  8. ambientTemperature
+ *  9. windSpeed
+ * 10. wetSensor
+ * 11. rainSensor
+ * 12. relativeHumidityPercentage
+ * 13. dewPointTemperature
+ * 14. caseTemperature
+ * 15. rainHeaterPercentage
+ * 16. blackBodyTemperature
+ * 17. rainHeaterState
+ * 18. powerVoltage
+ * 19. anemometerTemeratureDiff
+ * 20. wetnessDrop
+ * 21. wetnessAvg
+ * 22. wetnessDry
+ * 23. rainHeaterPWM
+ * 24. anemometerHeaterPWM
+ * 25. thermopileADC
+ * 26. thermistorADC
+ * 27. powerADC
+ * 28. blockADC
+ * 29. anemometerThermistorADC
+ * 30. davisVaneADC
+ * 31. dkMPH
+ * 32. extAnemometerDirection
+ * 33. rawWetnessOsc
+ * 34. dayCond
+ * 35. daylightADC
+ */
+static void parse_answer(uint8_t *buf, size_t L, boltwood_data *d){
+    if(!buf || !L || !d) return;
+    char *endptr;
+    int getint(){
+        if(!buf || !*buf) return -999;
+        long l = strtol((char*)buf, &endptr, 10);
+        if(endptr == (char*)buf) endptr = strchr((char*)buf, ' '); // omit non-number
+        buf = (uint8_t*)endptr;
+        while(*buf == ' ') ++buf;
+        return (int)l;
+    }
+    double getdbl(){
+        if(!buf || !*buf) return -999.;
+        double d = strtod((char*)buf, &endptr);
+        if(endptr == (char*)buf) endptr = strchr((char*)buf, ' '); // omit non-number
+        buf = (uint8_t*)endptr;
+        while(*buf == ' ') ++buf;
+        return d;
+    }
+    d->tmsrment = time(NULL);
+    d->humidstatTempCode = getint(); // 1. humidstatTempCode
+    DBG("buf: %s", buf);
+    getint(); getint();
+    d->rainCond = getint(); // 4. rainCond
+    DBG("buf: %s", buf);
+    getint(); getint();
+    DBG("buf: %s", buf);
+    d->skyMinusAmbientTemperature = getdbl(); // 7. skyMinusAmbientTemperature
+    d->ambientTemperature = getdbl(); // 8. ambientTemperature
+    d->windSpeed = getdbl(); // 9. windSpeed
+    switch(*buf){ // 10. wetSensor
+        case 'N':
+            d->wetState = 0;
+        break;
+        case 'W':
+            d->wetState = 1;
+        break;
+        case 'w':
+            d->wetState = -1;
+        break;
+        default:
+            d->wetState = -2;
+    }
+    getint(); // go to pos 11
+    getint(); d->relHumid = getint(); // 12. relativeHumidityPercentage
+    d->dewPointTemperature = getdbl(); // 13. dewPointTemperature
+    d->caseTemperature = getdbl(); // 14. caseTemperature
+    getint(); getdbl();
+    d->rainHeaterState = getint(); // 17. rainHeaterState
+    d->powerVoltage = getdbl();  // 18. powerVoltage
+    d->anemometerTemeratureDiff = getdbl(); // 19. anemometerTemeratureDiff
+    d->wetnessDrop = getint(); // 20. wetnessDrop
+    d->wetnessAvg = getint(); // 21. wetnessAvg
+    d->wetnessDry = getint(); // 22. wetnessDry
+    while(*buf) ++buf; // roll to end
+    while(*buf != ' ') --buf; ++buf;
+    d->daylightADC = getint(); // 35. daylightADC
+}
+
+/**
+ * Poll sensor for new dataportion
+ * @return: 0 if no data received, -1 if invalid data received, 1 if valid data received
+ */
+int poll_sensor(boltwood_data *d){
+    if(!d) return -1;
+    uint8_t buf[BUFLEN], cmd;
+    size_t L;
+    cmd = REQUEST_POLL;
+    if(write_tty(&cmd, 1)) // start polling
+        WARNX(_("can't request poll"));
+    if((L = read_string(buf, BUFLEN))){
+        if(L > 5 && buf[1] == ANS_DATA_FRAME){
+            if(chk_crc(&buf[2])){
+                WARNX(_("Bad CRC in input data"));
+                send_symbol(CMD_NACK);
+                return -1;
+            }
+            buf[L-5] = 0;
+            send_symbol(CMD_ACK);
+            printf("got: %s\n", &buf[4]);
+            if(buf[2] == DATAFRAME_SENSOR_REPORT){
+                parse_answer(&buf[3], L, d);
+                return 1;
+            }
+        }else if(L > 1){
+            if(buf[1] == ANS_POLLING_FRAME || buf[2] == ANS_POLLING_FRAME){ // polling - send command or ack
+                send_symbol(CMD_ACK);
+            }
+        }
+    }
+    return 0;
+}
+
+/**
+ * check whether connected device is boltwood sensor
+ * @return 1 if NO
+ */
+int check_sensor(){
+    double t0 = dtime();
+    boltwood_data b;
+    green(_("Check if there's a sensor...\n"));
+    while(dtime() - t0 < POLLING_TMOUT){
+        if(poll_sensor(&b) == 1) return 0;
+    }
+    WARNX(_("No sensor detected!"));
+    return 1;
+}

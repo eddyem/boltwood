@@ -19,13 +19,14 @@
  * MA 02110-1301, USA.
  */
 #include "usefull_macros.h"
+#include <sys/wait.h>
+#include <sys/prctl.h>
 #include <signal.h>
 #include "cmdlnopts.h"
+#include "imfunctions.h"
 #include "socket.h"
 
 void signals(int signo){
-    restore_console();
-    restore_tty();
     exit(signo);
 }
 
@@ -37,10 +38,8 @@ int main(int argc, char **argv){
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
     glob_pars *G = parse_args(argc, argv);
-
-    try_connect(G->device);
-    if(check_sensor()) signals(15); // there's not Boltwood sensor connected
-    if(G->terminal) run_terminal();
-    else daemonize(G->port);
+    if(!G->server) ERRX(_("Please, specify server name"));
+    if(!G->filename) ERRX(_("Please, specify the name of input FITS file"));
+    daemonize(G);
     return 0;
 }

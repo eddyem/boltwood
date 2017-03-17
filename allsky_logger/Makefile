@@ -1,11 +1,13 @@
 # run `make DEF=...` to add extra defines
-PROGRAM := boltwood
-LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all -pthread
+PROGRAM := allsky_logger
+LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all
+LDFLAGS += -lcfitsio
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
-#DEFINES += -DEBUG
 OBJDIR := mk
-CFLAGS += -O2 -Wall -Werror -Wextra -Wno-trampolines -std=gnu99
+CFLAGS += -O2 -Wall -Wextra -Wno-trampolines -std=gnu99
+DEFINES += -DEBUG
+#CFLAGS += -Werror
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))
 DEPS := $(OBJS:.o=.d)
 CC = gcc

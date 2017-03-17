@@ -37,6 +37,9 @@
 // Max amount of connections
 #define BACKLOG   (30)
 
+static uint64_t datctr = 0; // data portions counter
+static boltwood_data boltwood; // global structure with last data
+
 /**************** COMMON FUNCTIONS ****************/
 /**
  * wait for answer from socket
@@ -66,100 +69,63 @@ static int waittoread(int sock){
     return 0;
 }
 
-static uint8_t *findpar(uint8_t *str, char *par){
-    size_t L = strlen(par);
-    char *f = strstr((char*)str, par);
-    if(!f) return NULL;
-    f += L;
-    if(*f != '=') return NULL;
-    return (uint8_t*)(f + 1);
-}
-/**
- * get integer & double `parameter` value from string `str`, put value to `ret`
- * @return 1 if all OK
- */
-static long getintpar(uint8_t *str, char *parameter, long *ret){
-    long tmp;
-    char *endptr;
-    if(!(str = findpar(str, parameter))) return 0;
-    tmp = strtol((char*)str, &endptr, 0);
-    if(endptr == (char*)str || *str == 0 )
-        return 0;
-    if(ret) *ret = tmp;
-    DBG("get par: %s = %ld", parameter, tmp);
-    return 1;
-}
-static int getdpar(uint8_t *str, char *parameter, double *ret){
-    double tmp;
-    char *endptr;
-    if(!(str = findpar(str, parameter))) return 0;
-    tmp = strtod((char*)str, &endptr);
-    if(endptr == (char*)str || *str == 0)
-        return 0;
-    if(ret) *ret = tmp;
-    DBG("get par: %s = %g", parameter, tmp);
-    return 1;
-}
-
 /**************** SERVER FUNCTIONS ****************/
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-/*
-int send_ima(int sock, int webquery){
+int send_data(int sock, int webquery){
+    DBG("webq=%d", webquery);
     uint8_t buf[BUFLEN10], *bptr = buf, obuff[BUFLEN];
-    ssize_t Len;
-    size_t rest = BUFLEN10, imS = storedima->W * storedima->H * sizeof(uint16_t);
-    #define PUT(key, val) do{Len = snprintf((char*)bptr, rest, "%s=%i\n", key, (int)storedima->val); \
-                if(Len > 0){rest -= Len; bptr += Len;}}while(0)
-    PUT("binning", binning);
-    if(storedima->binning == 0xff){
-        PUT("subX", subframe->Xstart);
-        PUT("subY", subframe->Xstart);
-        PUT("subS", subframe->size);
-    }
-    Len = snprintf((char*)bptr, rest, "%s=%g\n", "exptime", storedima->exptime);
-    if(Len > 0){rest -= Len; bptr += Len;}
-    PUT("imtype", imtype);
-    PUT("imW", W);
-    PUT("imH", H);
-    PUT("exposetime", exposetime);
-    Len = snprintf((char*)bptr, rest, "imdata=");
-    if(Len){rest -= Len; bptr += Len;}
-    if(rest < imS){
-        red("rest = %zd, need %zd\n", rest, imS);
-        return 0; // not enough memory - HOW???
-    }
-    if(!memcpy(bptr, storedima->imdata, imS)){
-        WARN("memcpy()");
-        return 0;
-    }
-    rest -= imS;
+    ssize_t L;
+    size_t rest = BUFLEN10, Len = 0;
+    #define PUTI(val) do{L = snprintf((char*)bptr, rest, "%s=%d\n", #val, boltwood.val); \
+                if(L > 0){rest -= L; bptr += L; Len += L;}}while(0)
+    #define PUTD(val) do{L = snprintf((char*)bptr, rest, "%s=%.1f\n", #val, boltwood.val); \
+                if(L > 0){rest -= L; bptr += L; Len += L;}}while(0)
+    PUTI(humidstatTempCode);
+    PUTI(rainCond);
+    PUTD(skyMinusAmbientTemperature);
+    PUTD(ambientTemperature);
+    PUTD(windSpeed);
+    PUTI(wetState);
+    PUTI(relHumid);
+    PUTD(dewPointTemperature);
+    PUTD(caseTemperature);
+    PUTI(rainHeaterState);
+    PUTD(powerVoltage);
+    PUTD(anemometerTemeratureDiff);
+    PUTI(wetnessDrop);
+    PUTI(wetnessAvg);
+    PUTI(wetnessDry);
+    PUTI(daylightADC);
+    L = snprintf((char*)bptr, rest, "tmsrment=%ld\n", boltwood.tmsrment);
+    if(L > 0){rest -= L; bptr += L; Len += L;}
+
     // OK buffer ready, prepare to send it
     if(webquery){
-        Len = snprintf((char*)obuff, BUFLEN,
+        L = snprintf((char*)obuff, BUFLEN,
             "HTTP/2.0 200 OK\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             "Access-Control-Allow-Methods: GET, POST\r\n"
             "Access-Control-Allow-Credentials: true\r\n"
-            "Content-type: multipart/form-data\r\nContent-Length: %zd\r\n\r\n", Len);
-        if(Len < 0){
+            "Content-type: text/plain\r\nContent-Length: %zd\r\n\r\n", Len);
+        if(L < 0){
             WARN("sprintf()");
             return 0;
         }
-        if(Len != write(sock, obuff, Len)){
+        if(L != write(sock, obuff, L)){
             WARN("write");
             return 0;
         }
         DBG("%s", obuff);
     }
     // send data
-    size_t send = BUFLEN10 - rest;
-    red("send %zd bytes\n", send);
-    if(send != (size_t)write(sock, buf, send)){
+    red("send %zd bytes\n", Len);
+    DBG("Buf: %s", buf);
+    if(Len != (size_t)write(sock, buf, Len)){
         WARN("write()");
         return 0;
     }
     return 1;
-}*/
+}
 
 // search a first word after needle without spaces
 char* stringscan(char *str, char *needle){
@@ -178,44 +144,46 @@ char* stringscan(char *str, char *needle){
 void *handle_socket(void *asock){
     FNAME();
     int sock = *((int*)asock);
-    //int webquery = 0; // whether query is web or regular
+    int webquery = 0; // whether query is web or regular
     char buff[BUFLEN];
-    ssize_t readed;
+    uint64_t locctr = 0;
+    ssize_t rd;
     while(1){
         if(!waittoread(sock)){ // no data incoming
-           /* pthread_mutex_lock(&mutex);
-                red("Send image, imctr = %ld, locctr = %ld\n", imctr, locctr);
-                if(send_ima(sock, webquery)){
-                    locctr = imctr;
+            DBG("datctr:%lu, locctr: %lu", datctr, locctr);
+            pthread_mutex_lock(&mutex);
+            DBG("datctr:%lu, locctr: %lu", datctr, locctr);
+            if(datctr != locctr){
+                red("Send data, datctr = %ld, locctr = %ld\n", datctr, locctr);
+                if(send_data(sock, webquery)){
+                    locctr = datctr;
                     if(webquery){
                         pthread_mutex_unlock(&mutex);
                         break; // end of transmission
                     }
+                }
             }
-            pthread_mutex_unlock(&mutex);*/
+            pthread_mutex_unlock(&mutex);
             continue;
         }
-        if(!(readed = read(sock, buff, BUFLEN))) continue;
-        DBG("Got %zd bytes", readed);
-        if(readed < 0){ // error or disconnect
-            DBG("Nothing to read from fd %d (ret: %zd)", sock, readed);
+        if(!(rd = read(sock, buff, BUFLEN-1))) continue;
+        DBG("Got %zd bytes", rd);
+        if(rd < 0){ // error or disconnect
+            DBG("Nothing to read from fd %d (ret: %zd)", sock, rd);
             break;
         }
         // add trailing zero to be on the safe side
-        buff[readed] = 0;
+        buff[rd] = 0;
         // now we should check what do user want
         char *got, *found = buff;
         if((got = stringscan(buff, "GET")) || (got = stringscan(buff, "POST"))){ // web query
-            //webquery = 1;
+            webquery = 1;
             char *slash = strchr(got, '/');
             if(slash) found = slash + 1;
             // web query have format GET /some.resource
         }
         // here we can process user data
-        printf("user send: %s\n", found);
-        long ii; double dd;
-        if(getdpar((uint8_t*)found, "exptime", &dd)) printf("exptime: %g\n", dd);
-        if(getintpar((uint8_t*)found, "somepar", &ii)) printf("somepar: %ld\n", ii);
+        printf("user send: %s\nfound=%s", buff,found);
     }
     close(sock);
     //DBG("closed");
@@ -263,6 +231,15 @@ static void daemon_(int sock){
             if(pthread_create(&sock_thread, NULL, server, (void*) &sock))
                 ERR("pthread_create()");
         }
+        // get data
+        boltwood_data b;
+        if(poll_sensor(&b) == 1){
+            pthread_mutex_lock(&mutex);
+            memcpy(&boltwood, &b, sizeof(boltwood_data));
+            ++datctr;
+            pthread_mutex_unlock(&mutex);
+        }
+        usleep(1000); // sleep a little or thread's won't be able to lock mutex
     }while(1);
 }
 

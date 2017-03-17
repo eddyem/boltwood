@@ -1,5 +1,6 @@
-/*                                                                                                  geany_encoding=koi8-r
- * main.c
+/*
+ *                                                                                                  geany_encoding=koi8-r
+ * imfunctions.h
  *
  * Copyright 2017 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
  *
@@ -17,30 +18,15 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA 02110-1301, USA.
+ *
  */
-#include "usefull_macros.h"
-#include <signal.h>
-#include "cmdlnopts.h"
+#pragma once
+#ifndef __IMFUNCTIONS_H__
+#define __IMFUNCTIONS_H__
 #include "socket.h"
+#include "cmdlnopts.h"
 
-void signals(int signo){
-    restore_console();
-    restore_tty();
-    exit(signo);
-}
+int test_fits(char *name);
+int store_fits(char *name, datarecord *data);
 
-int main(int argc, char **argv){
-    initial_setup();
-    signal(SIGTERM, signals); // kill (-15) - quit
-    signal(SIGHUP, SIG_IGN);  // hup - ignore
-    signal(SIGINT, signals);  // ctrl+C - quit
-    signal(SIGQUIT, signals); // ctrl+\ - quit
-    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    glob_pars *G = parse_args(argc, argv);
-
-    try_connect(G->device);
-    if(check_sensor()) signals(15); // there's not Boltwood sensor connected
-    if(G->terminal) run_terminal();
-    else daemonize(G->port);
-    return 0;
-}
+#endif // __IMFUNCTIONS_H__

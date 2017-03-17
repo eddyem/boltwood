@@ -36,11 +36,10 @@ glob_pars  G;
 //            DEFAULTS
 // default global parameters
 glob_pars const Gdefault = {
-    .device = DEFAULT_COMDEV,
-    .port = "55555",
-    .terminal = 0,
-    .rest_pars = NULL,
-    .rest_pars_num = 0
+    .cwd = NULL,            // current working directory
+    .port = "55555",        // port to listen boltwood data
+    .server = NULL,         // server name
+    .filename = NULL,       // input file name
 };
 
 /*
@@ -50,10 +49,10 @@ glob_pars const Gdefault = {
 myoption cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
-    {"device",  NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.device),    _("serial device name (default: " DEFAULT_COMDEV ")")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("port to connect (default: 55555)")},
-    {"terminal",NO_ARGS,    NULL,   't',    arg_int,    APTR(&G.terminal),  _("run as terminal")},
-   end_option
+    {"address", NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.server),    _("server name")},
+    {"filename",NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.filename),  _("input FITS file name")},
+    end_option
 };
 
 /**
@@ -68,15 +67,19 @@ glob_pars *parse_args(int argc, char **argv){
     void *ptr;
     ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    change_helpstring("Usage: %s [args]\n\n\tWhere args are:\n");
+    change_helpstring(_("Usage: %s [args] [working dir]\n\n\tWhere args are:\n"));
     // parse arguments
     parseargs(&argc, &argv, cmdlnopts);
     if(help) showhelp(-1, cmdlnopts);
-    if(argc > 0){
-        G.rest_pars_num = argc;
-        G.rest_pars = calloc(argc, sizeof(char*));
-        for (i = 0; i < argc; i++)
-            G.rest_pars[i] = strdup(argv[i]);
+    if(argc > 0){ // the rest should be working directory
+        if(argc != 1){
+            red(_("Too many arguments:\n"));
+            for (i = 0; i < argc; i++)
+                printf("\t%s\n", argv[i]);
+            printf(_("Should be path to archive directory\n"));
+            signals(1);
+        }
+        G.cwd = argv[0];
     }
     return &G;
 }

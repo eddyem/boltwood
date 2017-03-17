@@ -1,4 +1,4 @@
-/*
+/*                                                                                                  geany_encoding=koi8-r
  * usefull_macros.h - a set of usefull functions: memory, color etc
  *
  * Copyright 2013 Edward V. Emelianoff <eddy@sao.ru>
@@ -284,44 +284,50 @@ void restore_tty(){
 }
 
 #ifndef BAUD_RATE
-#define BAUD_RATE B4800
+#define BAUD_RATE B9600
 #endif
-// init:
-void tty_init(char *comdev){
-    DBG("\nOpen port...\n");
-    do{
-        comfd = open(comdev,O_RDWR|O_NOCTTY|O_NONBLOCK);
-    }while (comfd == -1 && errno == EINTR);
-    if(comfd < 0){
-        WARN("Can't use port %s\n",comdev);
-        signals(-1); // quit?
-    }
-    // make exclusive open
-    if(ioctl(comfd, TIOCEXCL)){
-        WARN(_("Can't do exclusive open"));
-        close(comfd);
-        signals(2);
-    }
-    DBG(" OK\nGet current settings... ");
-    if(ioctl(comfd,TCGETA,&oldtty) < 0){  // Get settings
-        /// "Не могу получить настройки"
-        WARN(_("Can't get settings"));
-        signals(-1);
+// init: (speed = B9600 etc)
+void tty_init(char *comdev, tcflag_t speed){
+    if(comfd == -1){ // not opened
+        if(!comdev){
+            WARNX("comdev == NULL");
+            signals(11);
+        }
+        DBG("Open port...");
+        do{
+            comfd = open(comdev,O_RDWR|O_NOCTTY|O_NONBLOCK);
+        }while (comfd == -1 && errno == EINTR);
+        if(comfd < 0){
+            WARN(_("Can't open port %s"),comdev);
+            signals(2);
+        }
+        DBG("OK\nGet current settings...");
+        if(ioctl(comfd, TCGETA, &oldtty) < 0){  // Get settings
+            /// "Не могу получить настройки"
+            WARN(_("Can't get settings"));
+            signals(2);
+        }
+        DBG("Make exclusive");
+        // make exclusive open
+        if(ioctl(comfd, TIOCEXCL)){
+            WARN(_("Can't do exclusive open"));
+            close(comfd);
+            signals(2);
+        }
     }
     tty = oldtty;
     tty.c_lflag     = 0; // ~(ICANON | ECHO | ECHOE | ISIG)
     tty.c_oflag     = 0;
-    tty.c_cflag     = BAUD_RATE|CS8|CREAD|CLOCAL; // 9.6k, 8N1, RW, ignore line ctrl
+    tty.c_cflag     = speed|CS8|CREAD|CLOCAL; // 9.6k, 8N1, RW, ignore line ctrl
     tty.c_cc[VMIN]  = 0;  // non-canonical mode
     tty.c_cc[VTIME] = 5;
-    if(ioctl(comfd,TCSETA,&tty) < 0){
+    if(ioctl(comfd, TCSETA, &tty) < 0){
         /// "Не могу установить настройки"
         WARN(_("Can't set settings"));
-        signals(-1);
+        signals(0);
     }
-    DBG(" OK\n");
+    DBG("OK");
 }
-
 /**
  * Read data from TTY
  * @param buff (o) - buffer for data read
@@ -329,33 +335,24 @@ void tty_init(char *comdev){
  * @return amount of readed bytes
  */
 size_t read_tty(uint8_t *buff, size_t length){
-    ssize_t L = 0, l;
-    uint8_t *ptr = buff;
+    if(comfd < 0) return 0;
+    ssize_t L = 0;
     fd_set rfds;
     struct timeval tv;
     int retval;
-    do{
-        l = 0;
-        FD_ZERO(&rfds);
-        FD_SET(comfd, &rfds);
-        // wait for 100ms
-        tv.tv_sec = 0; tv.tv_usec = 100000;
-        retval = select(comfd + 1, &rfds, NULL, NULL, &tv);
-        if (!retval) break;
-        if(FD_ISSET(comfd, &rfds)){
-            if((l = read(comfd, ptr, length)) < 1){
-                WARN("read()");
-                return 0;
-            }
-
-            ptr += l; L += l;
-            length -= l;
-        }
-    }while(l);
+    FD_ZERO(&rfds);
+    FD_SET(comfd, &rfds);
+    tv.tv_sec = 0; tv.tv_usec = 50000; // wait for 50ms
+    retval = select(comfd + 1, &rfds, NULL, NULL, &tv);
+    if (!retval) return 0;
+    if(FD_ISSET(comfd, &rfds)){
+        if((L = read(comfd, buff, length)) < 1) return 0;
+    }
     return (size_t)L;
 }
 
-int write_tty(uint8_t *buff, size_t length){
+int write_tty(const uint8_t *buff, size_t length){
+    if(comfd < 0) return 1;
     ssize_t L = write(comfd, buff, length);
     if((size_t)L != length){
         /// "Ошибка записи!"

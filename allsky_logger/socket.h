@@ -1,5 +1,6 @@
-/*                                                                                                  geany_encoding=koi8-r
- * main.c
+/*
+ *                                                                                                  geany_encoding=koi8-r
+ * socket.h
  *
  * Copyright 2017 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
  *
@@ -17,30 +18,34 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA 02110-1301, USA.
+ *
  */
+#pragma once
+#ifndef __SOCKET_H__
+#define __SOCKET_H__
+
 #include "usefull_macros.h"
-#include <signal.h>
 #include "cmdlnopts.h"
-#include "socket.h"
 
-void signals(int signo){
-    restore_console();
-    restore_tty();
-    exit(signo);
-}
+typedef enum{
+    INTEGR, // int64_t
+    DOUBLE  // double
+} datatype;
 
-int main(int argc, char **argv){
-    initial_setup();
-    signal(SIGTERM, signals); // kill (-15) - quit
-    signal(SIGHUP, SIG_IGN);  // hup - ignore
-    signal(SIGINT, signals);  // ctrl+C - quit
-    signal(SIGQUIT, signals); // ctrl+\ - quit
-    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    glob_pars *G = parse_args(argc, argv);
+typedef union{
+    double d;
+    int64_t i;
+} bdata;
 
-    try_connect(G->device);
-    if(check_sensor()) signals(15); // there's not Boltwood sensor connected
-    if(G->terminal) run_terminal();
-    else daemonize(G->port);
-    return 0;
-}
+typedef struct{
+    const char *varname;    // variable name as it comes from socket
+    const char *keyname;    // FITS keyword name
+    const char *comment;    // comment to FITS file
+    datatype type;          // type of data
+    bdata data;             // data itself
+} datarecord;
+
+void daemonize(glob_pars *G);
+int watch_fits(char *name);
+
+#endif // __SOCKET_H__

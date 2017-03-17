@@ -22,6 +22,14 @@
 #ifndef __TERM_H__
 #define __TERM_H__
 
+#define FRAME_MAX_LENGTH        (300)
+#define MAX_MEMORY_DUMP_SIZE    (0x800 * 4)
+// terminal timeout (seconds)
+#define     WAIT_TMOUT          (0.2)
+// boltwood polling timeout - 15 seconds
+#define     POLLING_TMOUT       (15.0)
+
+
 // communication errors
 typedef enum{
     TRANS_SUCCEED = 0,  // no errors
@@ -41,19 +49,31 @@ typedef enum{
     FRAME_END = '\n',
 } term_symbols;
 
-#define FRAME_MAX_LENGTH (300)
-#define MAX_MEMORY_DUMP_SIZE (0x800 * 4)
+// main structure with useful data from cloud sensor
+typedef struct{
+    int humidstatTempCode;
+    int rainCond;
+    double skyMinusAmbientTemperature;
+    double ambientTemperature;
+    double windSpeed;
+    int wetState; // 0 - dry, 1 - wet now, -1 - wet recently, -2 - unknown
+    int relHumid;
+    double dewPointTemperature;
+    double caseTemperature;
+    int rainHeaterState;
+    double powerVoltage;
+    double anemometerTemeratureDiff;
+    int wetnessDrop;
+    int wetnessAvg;
+    int wetnessDry;
+    int daylightADC;
+    time_t tmsrment; // measurement time
+} boltwood_data;
 
-
-// terminal timeout (seconds)
-#define     WAIT_TMOUT      (0.2)
 
 /******************************** Commands definition ********************************/
 #define CMD_ACK         'a'
 #define CMD_NACK        'n'
-
-
-
 
 /******************************** Answers definition ********************************/
 #define ANS_COMMAND_ACKED   'A'
@@ -61,6 +81,12 @@ typedef enum{
 #define ANS_DATA_FRAME      'M'
 #define ANS_POLLING_FRAME   'P'
 
+/******************************** Data frame types ********************************/
+#define DATAFRAME_SENSOR_REPORT     'D'
+
 void run_terminal();
-int try_connect(char *device);
+void try_connect(char *device);
+int poll_sensor(boltwood_data *d);
+int check_sensor();
+
 #endif // __TERM_H__
