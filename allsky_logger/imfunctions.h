@@ -27,6 +27,6 @@
 #include "cmdlnopts.h"
 
 int test_fits(char *name);
-int store_fits(char *name, datarecord *data);
+void store_fits(char *name, datarecord *data);
 
 #endif // __IMFUNCTIONS_H__

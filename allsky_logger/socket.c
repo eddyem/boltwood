@@ -38,6 +38,8 @@
 // Max amount of connections
 #define BACKLOG   (30)
 
+static double minstoragetime;
+
 // keyname, comment, type, data
 static datarecord boltwood_data[] = {
     {"humidstatTempCode"         , "HSCODE"  , "hum. and ambient temp. sensor code (0 - OK)"    , INTEGR, {0}},
@@ -179,20 +181,19 @@ static int waittoread(int sock){
  * @return inotify file descriptor
  */
 int watch_fits(char *name){
-    static int oldfd = -1, oldwd = -1;
-    if(oldfd > 0 && oldwd > 0){
-        inotify_rm_watch(oldfd, oldwd);
-        oldfd = -1, oldwd = -1;
+    static int fd = -1, wd = -1;
+    if(fd > 0 && wd > 0){
+        inotify_rm_watch(fd, wd);
+        wd = -1;
     }
     if(!test_fits(name)) ERRX(_("File %s is not FITS file with 2D image!"), name);
-    int fd;
-    fd = inotify_init1(IN_NONBLOCK);
+    if(fd < 0)
+        fd = inotify_init1(IN_NONBLOCK);
     if(fd == -1) ERR("inotify_init1()");
-    oldfd = fd;
     FILE* f = fopen(name, "r");
     if(!f) ERR("fopen()"); // WTF???
     fclose(f);
-    if((oldwd = inotify_add_watch(fd, name, IN_CLOSE_WRITE)) < 0)
+    if((wd = inotify_add_watch(fd, name, IN_CLOSE_WRITE)) < 0)
         ERR("inotify_add_watch()");
     DBG("file %s added to inotify", name);
     return fd;
@@ -211,7 +212,7 @@ static void test_path(char *path){
 
 /**
  * Client daemon itself
- * @param G - global parameters
+ * @param FITSpath - path to file watched
  * @param infd - inotify file descriptor
  * @param sock - socket's file descriptor
  */
@@ -225,6 +226,7 @@ static void client_(char *FITSpath, int infd, int sock){
     fds.fd = infd;
     fds.events = POLLIN;
     char buf[256];
+    double lastTstorage = -1.; // last time of file saving
     void rlc(size_t newsz){
         if(newsz >= Bufsiz){
             Bufsiz += 1024;
@@ -255,7 +257,12 @@ static void client_(char *FITSpath, int infd, int sock){
                 }else{
                     DBG("file changed");
                     usleep(100000); // wait a little for file changes
-                    fds.fd = store_fits(FITSpath, last_good_msrment);
+                    fds.fd = watch_fits(FITSpath);
+                    if(dtime() - lastTstorage > minstoragetime){
+                        DBG("lastT: %.2g, now: %.2g", lastTstorage, dtime());
+                        lastTstorage = dtime();
+                        store_fits(FITSpath, last_good_msrment);
+                    }
                 }
             }
         }
@@ -293,6 +300,7 @@ void daemonize(glob_pars *G){
     int fd = watch_fits(G->filename);
     // CD to archive directory if user wants
     test_path(G->cwd);
+    minstoragetime = G->min_storage_time;
     // run fork before socket opening to prevent daemon's death if there's no network
     #ifndef EBUG
     green("Daemonize\n");

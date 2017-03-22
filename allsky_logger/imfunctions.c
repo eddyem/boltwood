@@ -154,7 +154,7 @@ do{ int status = 0;                                         \
  * file stored in current directory under YYYY/MM/DD/hh:mm:ss.fits.gz
  * @return file descriptor for new notifications
  */
-int store_fits(char *name, datarecord *data){
+void store_fits(char *name, datarecord *data){
     DBG("Try to store %s", name);
     double t0 = dtime();
     long modtm = 0; // modification time - to change later
@@ -168,9 +168,11 @@ int store_fits(char *name, datarecord *data){
     TRYFITS(fits_get_hdrspace, fptr, &nkeys, NULL);
     DBG("%d keys", nkeys);
     green("open & get hdr: %gs\n", dtime() - t0);
-    char dateobs[FLEN_KEYWORD], timeobs[FLEN_KEYWORD];
+    char dateobs[FLEN_KEYWORD], timeobs[FLEN_KEYWORD], imtype[FLEN_KEYWORD];
     TRYFITS(fits_read_key, fptr, TSTRING, "DATE-OBS", dateobs, NULL);
     DBG("DATE-OBS: %s", dateobs);
+    TRYFITS(fits_read_key, fptr, TSTRING, "IMAGETYP", imtype, NULL);
+    DBG("IMAGETYP: %s", dateobs);
     TRYFITS(fits_read_key, fptr, TSTRING, "START", timeobs, NULL);
     DBG("START: %s", timeobs);
     TRYFITS(fits_read_key, fptr, TLONG, "UNIXTIME", &modtm, NULL);
@@ -180,7 +182,10 @@ int store_fits(char *name, datarecord *data){
     green("+ got headers: %gs\n", dtime() - t0);
     gotodir(dateobs);
     char newname[PATH_MAX];
-    snprintf(newname, PATH_MAX, "%s.fits.gz", timeobs);
+    if(strncasecmp(imtype, "dark", 4) == 0)
+        snprintf(newname, PATH_MAX, "%s.dark.fits.gz", timeobs);
+    else
+        snprintf(newname, PATH_MAX, "%s.fits.gz", timeobs);
     // remove if exists
     unlink(newname);
     TRYFITS(fits_create_file, &ofptr, newname);
@@ -199,15 +204,17 @@ int store_fits(char *name, datarecord *data){
         else
             fits_report_error(stderr, status);
     }
-    DBG("Boltwood data");
-    // now the file copied -> add header from Boltwood's sensor
-    while(data->varname){
-        if(data->type == INTEGR){
-            WRITEIREC(data->keyname, data->data.i, data->comment);
-        }else{
-           WRITEDREC(data->keyname, data->data.d, data->comment);
+    if(data){
+        DBG("Boltwood data");
+        // now the file copied -> add header from Boltwood's sensor
+        while(data->varname){
+            if(data->type == INTEGR){
+                WRITEIREC(data->keyname, data->data.i, data->comment);
+            }else{
+               WRITEDREC(data->keyname, data->data.d, data->comment);
+            }
+            ++data;
         }
-        ++data;
     }
     long npix = naxes[0]*naxes[1];
     imdat = MALLOC(uint16_t, npix);
@@ -225,9 +232,7 @@ ret:
         modifytimestamp(newname, (time_t)modtm);
     }
     // as cfitsio removes old file instead of trunkate it, we need to refresh inotify every time!
-    int fd = watch_fits(name);
     if(chdir(oldwd)){ // return back to BD root directory
         ERR("Can't chdir");
     };
-   return fd;
 }

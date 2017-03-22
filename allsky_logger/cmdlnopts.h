@@ -34,6 +34,7 @@ typedef struct{
     char *cwd;              // change working directory to given
     char *server;           // server name
     char *filename;         // input file name
+    double min_storage_time;// minimal storage period
 } glob_pars;
 
 

@@ -40,6 +40,7 @@ glob_pars const Gdefault = {
     .port = "55555",        // port to listen boltwood data
     .server = NULL,         // server name
     .filename = NULL,       // input file name
+    .min_storage_time = 60.,// minimal storage period
 };
 
 /*
@@ -52,6 +53,7 @@ myoption cmdlnopts[] = {
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("port to connect (default: 55555)")},
     {"address", NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.server),    _("server name")},
     {"filename",NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.filename),  _("input FITS file name")},
+    {"mindt",   NEED_ARG,   NULL,   't',    arg_double, APTR(&G.min_storage_time), _("minimal time interval (in seconds) for image storage (default: 60s)")},
     end_option
 };
 
