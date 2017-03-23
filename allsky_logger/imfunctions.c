@@ -128,6 +128,22 @@ static void gotodir(char *relpath){ // create directory structure
     if(-1 == chdir(relpath)) ERR("chdir()");
 }
 
+/**
+ * check if FITS file is `dark`
+ * @return 1 if it's dark
+ */
+int fits_is_dark(char *name){
+    mmapbuf *buf = My_mmap(name);
+    if(!buf) return 0;
+    char *key = memmem(buf->data, buf->len, "IMAGETYP", 8);
+    if(!key) return 0;
+    if(buf->len - (key - buf->data) < 30) return 0;
+    key += 9;
+    char *dark = memmem(key, 20, "'dark", 5);
+    if(dark) return 1;
+    return 0;
+}
+
 #define TRYFITS(f, ...)                     \
 do{ int status = 0;                         \
     f(__VA_ARGS__, &status);                \
@@ -145,7 +161,6 @@ do{ int status = 0;                                         \
     snprintf(record, FLEN_CARD, "%-8s=%21g / %s", k, v, c); \
     fits_write_record(ofptr, record, &status);              \
 }while(0)
-
 
 /**
  * Try to store given FITS file adding boltwood's header

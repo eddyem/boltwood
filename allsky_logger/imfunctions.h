@@ -28,5 +28,6 @@
 
 int test_fits(char *name);
 void store_fits(char *name, datarecord *data);
+int fits_is_dark(char *name);
 
 #endif // __IMFUNCTIONS_H__

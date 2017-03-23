@@ -262,7 +262,8 @@ static void client_(char *FITSpath, int infd, int sock){
                         DBG("lastT: %.2g, now: %.2g", lastTstorage, dtime());
                         lastTstorage = dtime();
                         store_fits(FITSpath, last_good_msrment);
-                    }
+                    }else if(fits_is_dark(FITSpath)) // save darks nevertheless time
+                        store_fits(FITSpath, last_good_msrment);
                 }
             }
         }

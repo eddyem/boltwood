@@ -6,7 +6,7 @@ SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
 OBJDIR := mk
 CFLAGS += -O2 -Wall -Wextra -Wno-trampolines -std=gnu99
-DEFINES += -DEBUG
+#DEFINES += -DEBUG
 #CFLAGS += -Werror
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))
 DEPS := $(OBJS:.o=.d)
