@@ -20,6 +20,7 @@
  */
 
 #include "usefull_macros.h"
+#include <time.h>
 
 /**
  * function for different purposes that need to know time intervals
@@ -385,4 +386,35 @@ int str2double(double *num, const char *str){
     }
     if(num) *num = res; // you may run it like myatod(NULL, str) to test wether str is double number
     return TRUE;
+}
+
+FILE *Flog = NULL; // log file descriptor
+/**
+ * Try to open log file
+ * if failed show warning message
+ */
+void openlogfile(char *name){
+    if(!name){
+        WARNX(_("Need filename"));
+        return;
+    }
+    green(_("Try to open log file %s in append mode\n"), name);
+    if(!(Flog = fopen(name, "a")))
+        WARN(_("Can't open log file"));
+}
+
+/**
+ * Save message to log file
+ */
+int putlog(const char *fmt, ...){
+    if(!Flog) return 0;
+    time_t t_now = time(NULL);
+    int i = fprintf(Flog, "\n\t\t%s", ctime(&t_now));
+    va_list ar;
+    va_start(ar, fmt);
+    i = vfprintf(Flog, fmt, ar);
+    va_end(ar);
+    fprintf(Flog, "\n");
+    fflush(Flog);
+    return i;
 }

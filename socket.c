@@ -31,6 +31,7 @@
 #include <unistd.h> // daemon
 #include <sys/wait.h> // wait
 #include <sys/prctl.h> //prctl
+#include <sys/syscall.h> // syscall
 
 #define BUFLEN    (10240)
 #define BUFLEN10  (1048576)
@@ -142,6 +143,7 @@ char* stringscan(char *str, char *needle){
 }
 
 void *handle_socket(void *asock){
+    putlog("handle_socket(): getpid: %d, pthread_self: %lu, tid: %lu",getpid(), pthread_self(), syscall(SYS_gettid));
     FNAME();
     int sock = *((int*)asock);
     int webquery = 0; // whether query is web or regular
@@ -161,14 +163,23 @@ void *handle_socket(void *asock){
                         pthread_mutex_unlock(&mutex);
                         break; // end of transmission
                     }
+                }else{ // some error
+                    putlog("can't send data, some error occured");
+                    pthread_mutex_unlock(&mutex);
+                    break;
                 }
             }
             pthread_mutex_unlock(&mutex);
             continue;
         }
-        if(!(rd = read(sock, buff, BUFLEN-1))) continue;
+        if(!(rd = read(sock, buff, BUFLEN-1))){
+            putlog("socket closed. Exit");
+            break;
+        }
+        putlog("client send %zd bytes", rd);
         DBG("Got %zd bytes", rd);
-        if(rd < 0){ // error or disconnect
+        if(rd < 0){ // error
+            putlog("some error occured");
             DBG("Nothing to read from fd %d (ret: %zd)", sock, rd);
             break;
         }
@@ -187,13 +198,16 @@ void *handle_socket(void *asock){
     }
     close(sock);
     //DBG("closed");
+    putlog("socket closed, exit");
     pthread_exit(NULL);
     return NULL;
 }
 
 void *server(void *asock){
+    putlog("server(): getpid: %d, pthread_self: %lu, tid: %lu",getpid(), pthread_self(), syscall(SYS_gettid));
     int sock = *((int*)asock);
     if(listen(sock, BACKLOG) == -1){
+        putlog("listen() failed");
         WARN("listen");
         return NULL;
     }
@@ -202,34 +216,47 @@ void *server(void *asock){
         struct sockaddr_in their_addr;
         int newsock;
         if(!waittoread(sock)) continue;
-        red("Got connection\n");
         newsock = accept(sock, (struct sockaddr*)&their_addr, &size);
         if(newsock <= 0){
+            putlog("accept() failed");
             WARN("accept()");
             continue;
         }
+        struct sockaddr_in* pV4Addr = (struct sockaddr_in*)&their_addr;
+        struct in_addr ipAddr = pV4Addr->sin_addr;
+        char str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &ipAddr, str, INET_ADDRSTRLEN);
+        putlog("get connection from %s", str);
+        red("Got connection from %s\n", str);
         pthread_t handler_thread;
-        if(pthread_create(&handler_thread, NULL, handle_socket, (void*) &newsock))
+        if(pthread_create(&handler_thread, NULL, handle_socket, (void*) &newsock)){
+            putlog("server(): pthread_create() failed");
             WARN("pthread_create()");
-        else{
+        }else{
             DBG("Thread created, detouch");
             pthread_detach(handler_thread); // don't care about thread state
         }
     }
+    putlog("server(): UNREACHABLE CODE REACHED!");
 }
 
 static void daemon_(int sock){
     FNAME();
     if(sock < 0) return;
     pthread_t sock_thread;
-    if(pthread_create(&sock_thread, NULL, server, (void*) &sock))
+    if(pthread_create(&sock_thread, NULL, server, (void*) &sock)){
+        putlog("daemon_(): pthread_create() failed");
         ERR("pthread_create()");
+    }
     do{
         if(pthread_kill(sock_thread, 0) == ESRCH){ // died
             WARNX("Sockets thread died");
+            putlog("Sockets thread died");
             pthread_join(sock_thread, NULL);
-            if(pthread_create(&sock_thread, NULL, server, (void*) &sock))
+            if(pthread_create(&sock_thread, NULL, server, (void*) &sock)){
+                putlog("daemon_(): new pthread_create() failed");
                 ERR("pthread_create()");
+            }
         }
         // get data
         boltwood_data b;
@@ -241,6 +268,7 @@ static void daemon_(int sock){
         }
         usleep(1000); // sleep a little or thread's won't be able to lock mutex
     }while(1);
+    putlog("daemon_(): UNREACHABLE CODE REACHED!");
 }
 
 /**
@@ -249,15 +277,13 @@ static void daemon_(int sock){
 void daemonize(char *port){
     FNAME();
 #ifndef EBUG
-    green("Daemonize\n");
-    if(daemon(1, 0)){
-        ERR("daemon()");
-    }
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
+            putlog("create child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
+            putlog("child %d died\n", childpid);
             WARNX("Child %d died\n", childpid);
             sleep(1);
         }else{
@@ -297,12 +323,14 @@ void daemonize(char *port){
         break; // if we get here, we have a successfull connection
     }
     if(p == NULL){
+        putlog("failed to bind socket");
         // looped off the end of the list with no successful bind
         ERRX("failed to bind socket");
     }
     freeaddrinfo(res);
     daemon_(sock);
     close(sock);
+    putlog("socket closed, exit");
     signals(0);
 }
 

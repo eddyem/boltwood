@@ -24,7 +24,6 @@
 #define __CMDLNOPTS_H__
 
 #include "parseargs.h"
-#include "term.h"
 
 /*
  * here are some typedef's for global data

@@ -251,13 +251,11 @@ static void client_(char *FITSpath, int infd, int sock){
             DBG("changed?");
             if(fds.revents & POLLIN){
                 ssize_t len = read(infd, &buf, sizeof(buf));
-                if (len == -1 && errno != EAGAIN) {
+                if (len == -1 && errno != EAGAIN){
                    ERR("read");
-                   return;
                 }else{
                     DBG("file changed");
                     usleep(100000); // wait a little for file changes
-                    fds.fd = watch_fits(FITSpath);
                     if(dtime() - lastTstorage > minstoragetime){
                         DBG("lastT: %.2g, now: %.2g", lastTstorage, dtime());
                         lastTstorage = dtime();
@@ -265,6 +263,7 @@ static void client_(char *FITSpath, int infd, int sock){
                     }else if(fits_is_dark(FITSpath)) // save darks nevertheless time
                         store_fits(FITSpath, last_good_msrment);
                 }
+                fds.fd = watch_fits(FITSpath);
             }
         }
         if(!waittoread(sock)) continue;
@@ -285,7 +284,7 @@ static void client_(char *FITSpath, int infd, int sock){
         }
         rlc(offset);
         recvBuff[offset] = 0;
-        DBG("read %zd bytes", offset);
+        //DBG("read %zd bytes", offset);
         parse_data(recvBuff, &last_good_msrment);
     }
 }
@@ -305,7 +304,7 @@ void daemonize(glob_pars *G){
     // run fork before socket opening to prevent daemon's death if there's no network
     #ifndef EBUG
     green("Daemonize\n");
-    if(daemon(1, 0)){
+    if(daemon(1, 0))
         ERR("daemon()");
     while(1){ // guard for dead processes
         pid_t childpid = fork();
@@ -318,7 +317,7 @@ void daemonize(glob_pars *G){
             prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
             break; // go out to normal functional
         }
-    }}
+    }
     #endif
     int sock = -1;
     struct addrinfo hints, *res, *p;

@@ -37,7 +37,13 @@ int main(int argc, char **argv){
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
     glob_pars *G = parse_args(argc, argv);
-
+    if(G->rest_pars_num)
+        openlogfile(G->rest_pars[0]);
+    #ifndef EBUG
+    if(daemon(1, 0)){
+        ERR("daemon()");
+    }
+    #endif
     try_connect(G->device);
     if(check_sensor()) signals(15); // there's not Boltwood sensor connected
     if(G->terminal) run_terminal();

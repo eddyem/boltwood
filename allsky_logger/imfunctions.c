@@ -32,13 +32,12 @@
 
 #include "usefull_macros.h"
 #include "imfunctions.h"
-#include "term.h"
 #include "socket.h"
 
 /**
  * All image-storing functions modify ctime of saved files to be the time of
  * exposition start!
- */
+ *
 void modifytimestamp(char *filename, time_t tv_sec){
     if(!filename) return;
     struct timespec times[2];
@@ -46,7 +45,7 @@ void modifytimestamp(char *filename, time_t tv_sec){
     times[0].tv_nsec = UTIME_OMIT;
     times[1].tv_sec = tv_sec; // change mtime
     if(utimensat(AT_FDCWD, filename, times, 0)) WARN(_("Can't change timestamp for %s"), filename);
-}
+}*/
 
 /**
  * Test if `name` is a fits file with 2D image
@@ -133,15 +132,22 @@ static void gotodir(char *relpath){ // create directory structure
  * @return 1 if it's dark
  */
 int fits_is_dark(char *name){
+    int ret = 0;
     mmapbuf *buf = My_mmap(name);
     if(!buf) return 0;
     char *key = memmem(buf->data, buf->len, "IMAGETYP", 8);
-    if(!key) return 0;
-    if(buf->len - (key - buf->data) < 30) return 0;
+    if(!key) goto light;
+    if(buf->len - (key - buf->data) < 30) goto light;
     key += 9;
     char *dark = memmem(key, 20, "'dark", 5);
-    if(dark) return 1;
-    return 0;
+    if(dark){
+        DBG("DARK!");
+        ret = 1;
+    }
+light:
+    My_munmap(buf);
+    DBG("LIGHT");
+    return ret;
 }
 
 #define TRYFITS(f, ...)                     \
@@ -244,7 +250,7 @@ ret:
     status = 0;
     if(ofptr){
         fits_close_file(ofptr, &status);
-        modifytimestamp(newname, (time_t)modtm);
+        //modifytimestamp(newname, (time_t)modtm);
     }
     // as cfitsio removes old file instead of trunkate it, we need to refresh inotify every time!
     if(chdir(oldwd)){ // return back to BD root directory
