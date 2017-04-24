@@ -29,8 +29,6 @@
 #include <limits.h>     // INT_xxx
 #include <signal.h> // pthread_kill
 #include <unistd.h> // daemon
-#include <sys/wait.h> // wait
-#include <sys/prctl.h> //prctl
 #include <sys/syscall.h> // syscall
 
 #define BUFLEN    (10240)
@@ -276,22 +274,6 @@ static void daemon_(int sock){
  */
 void daemonize(char *port){
     FNAME();
-#ifndef EBUG
-    while(1){ // guard for dead processes
-        pid_t childpid = fork();
-        if(childpid){
-            putlog("create child with PID %d\n", childpid);
-            DBG("Created child with PID %d\n", childpid);
-            wait(NULL);
-            putlog("child %d died\n", childpid);
-            WARNX("Child %d died\n", childpid);
-            sleep(1);
-        }else{
-            prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
-            break; // go out to normal functional
-        }
-    }
-#endif
     int sock = -1;
     struct addrinfo hints, *res, *p;
     memset(&hints, 0, sizeof(hints));

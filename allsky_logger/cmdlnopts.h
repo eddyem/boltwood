@@ -34,6 +34,7 @@ typedef struct{
     char *server;           // server name
     char *filename;         // input file name
     double min_storage_time;// minimal storage period
+    char *logfile;          // filename of log
 } glob_pars;
 
 

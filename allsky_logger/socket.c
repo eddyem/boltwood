@@ -186,15 +186,27 @@ int watch_fits(char *name){
         inotify_rm_watch(fd, wd);
         wd = -1;
     }
-    if(!test_fits(name)) ERRX(_("File %s is not FITS file with 2D image!"), name);
-    if(fd < 0)
+    if(!test_fits(name)){
+        putlog("File %s is not FITS file with 2D image!", name);
+        ERRX(_("File %s is not FITS file with 2D image!"), name);
+    }
+    if(fd < 0){
         fd = inotify_init1(IN_NONBLOCK);
-    if(fd == -1) ERR("inotify_init1()");
+    }
+    if(fd == -1){
+        putlog("inotify_init1() error");
+        ERR("inotify_init1()");
+    }
     FILE* f = fopen(name, "r");
-    if(!f) ERR("fopen()"); // WTF???
+    if(!f){
+        putlog("can't open %s", name);
+        ERR("fopen()"); // WTF???
+    }
     fclose(f);
-    if((wd = inotify_add_watch(fd, name, IN_CLOSE_WRITE)) < 0)
+    if((wd = inotify_add_watch(fd, name, IN_CLOSE_WRITE)) < 0){
+        putlog("inotify_add_watch() error");
         ERR("inotify_add_watch()");
+    }
     DBG("file %s added to inotify", name);
     return fd;
 }
@@ -204,9 +216,15 @@ int watch_fits(char *name){
  */
 static void test_path(char *path){
     if(path){
-        if(chdir(path)) ERR("Can't chdir(%s)", path);
+        if(chdir(path)){
+            putlog("Can't chdir(%s)", path);
+            ERR("Can't chdir(%s)", path);
+        }
     }
-    if(access("./", W_OK)) ERR("access()");
+    if(access("./", W_OK)){
+        putlog("access() error");
+        ERR("access()");
+    }
     DBG("OK, user can write to given path");
 }
 
@@ -239,29 +257,39 @@ static void client_(char *FITSpath, int infd, int sock){
         }
     }
     DBG("Start polling");
+    putlog("Start polling");
     while(1){
         poll_num = poll(&fds, 1, 1);
         if(poll_num == -1){
-           if (errno == EINTR)
-               continue;
-           ERR("poll()");
-           return;
+            if (errno == EINTR)
+                continue;
+            putlog("poll() error");
+            ERR("poll()");
+            return;
         }
         if(poll_num > 0){
             DBG("changed?");
             if(fds.revents & POLLIN){
                 ssize_t len = read(infd, &buf, sizeof(buf));
                 if (len == -1 && errno != EAGAIN){
-                   ERR("read");
+                    putlog("read() error");
+                    ERR("read");
                 }else{
                     DBG("file changed");
                     usleep(100000); // wait a little for file changes
                     if(dtime() - lastTstorage > minstoragetime){
                         DBG("lastT: %.2g, now: %.2g", lastTstorage, dtime());
+                        putlog("store light frame, %.1f seconds since last storage", dtime()-lastTstorage);
+                        if(!last_good_msrment) putlog("Boltwood's data is absent!");
                         lastTstorage = dtime();
                         store_fits(FITSpath, last_good_msrment);
-                    }else if(fits_is_dark(FITSpath)) // save darks nevertheless time
+                        last_good_msrment = NULL; // clear last data
+                    }else if(fits_is_dark(FITSpath)){ // save darks nevertheless time
+                        putlog("dark frame detected, store it");
+                        if(!last_good_msrment) putlog("Boltwood's data is absent!");
                         store_fits(FITSpath, last_good_msrment);
+                        last_good_msrment = NULL; // clear last data
+                    }
                 }
                 fds.fd = watch_fits(FITSpath);
             }
@@ -271,14 +299,19 @@ static void client_(char *FITSpath, int infd, int sock){
         do{
             rlc(offset);
             ssize_t n = read(sock, &recvBuff[offset], Bufsiz - offset);
-            if(!n) break;
+            if(!n){
+                putlog("socket disconnected");
+                break;
+            }
             if(n < 0){
+                putlog("read() error");
                 WARN("read");
                 break;
             }
             offset += n;
         }while(waittoread(sock));
         if(!offset){
+            putlog("socket disconnected");
             WARN("Socket closed\n");
             return;
         }
@@ -303,14 +336,17 @@ void daemonize(glob_pars *G){
     minstoragetime = G->min_storage_time;
     // run fork before socket opening to prevent daemon's death if there's no network
     #ifndef EBUG
-    green("Daemonize\n");
-    if(daemon(1, 0))
+    if(daemon(1, 0)){
+        putlog("daemon() error");
         ERR("daemon()");
+    }
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
+            putlog("Created child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
+            putlog("Child %d died\n", childpid);
             WARNX("Child %d died\n", childpid);
             sleep(1);
         }else{
@@ -347,6 +383,7 @@ void daemonize(glob_pars *G){
         break; // if we get here, we have a successfull connection
     }
     if(p == NULL){
+        putlog("failed to bind socket");
         // looped off the end of the list with no successful bind
         ERRX("failed to bind socket");
     }

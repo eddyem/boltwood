@@ -40,6 +40,7 @@ int main(int argc, char **argv){
     glob_pars *G = parse_args(argc, argv);
     if(!G->server) ERRX(_("Please, specify server name"));
     if(!G->filename) ERRX(_("Please, specify the name of input FITS file"));
+    if(G->logfile) openlogfile(G->logfile);
     daemonize(G);
     return 0;
 }

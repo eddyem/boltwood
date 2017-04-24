@@ -104,15 +104,21 @@ rtn:
 
 static void mymkdir(char *name){
     if(mkdir(name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)){
-        if(errno != EEXIST)
+        if(errno != EEXIST){
+            putlog("error: mkdir(%s)", name);
             ERR("mkdir()");
+        }
     }
+    putlog("directory %s created", name);
     DBG("mkdir(%s)", name);
 }
 
 static void gotodir(char *relpath){ // create directory structure
     if(chdir(relpath)){ // can't chdir -> test
-        if(errno != ENOENT) ERR("Can't chdir");
+        if(errno != ENOENT){
+            putlog("can't chdir(%s)", relpath);
+            ERR("Can't chdir");
+        }
     }else return;
     // no such directory -> create it
     char *p = relpath;
@@ -124,7 +130,10 @@ static void gotodir(char *relpath){ // create directory structure
         }
     }
     mymkdir(relpath);
-    if(-1 == chdir(relpath)) ERR("chdir()");
+    if(-1 == chdir(relpath)){
+        putlog("can't chdir(%s) to created directory", relpath);
+        ERR("chdir()");
+    }
 }
 
 /**

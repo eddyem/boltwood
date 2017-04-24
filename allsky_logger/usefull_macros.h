@@ -48,6 +48,7 @@
 #include <stdlib.h>
 #include <termios.h>
 #include <termio.h>
+#include <time.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <stdint.h>
@@ -137,4 +138,6 @@ int write_tty(const uint8_t *buff, size_t length);
 
 int str2double(double *num, const char *str);
 
+void openlogfile(char *name);
+int putlog(const char *fmt, ...);
 #endif // __USEFULL_MACROS_H__

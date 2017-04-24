@@ -41,6 +41,7 @@ glob_pars const Gdefault = {
     .server = NULL,         // server name
     .filename = NULL,       // input file name
     .min_storage_time = 60.,// minimal storage period
+    .logfile = NULL,
 };
 
 /*
@@ -54,6 +55,7 @@ myoption cmdlnopts[] = {
     {"address", NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.server),    _("server name")},
     {"filename",NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.filename),  _("input FITS file name")},
     {"mindt",   NEED_ARG,   NULL,   't',    arg_double, APTR(&G.min_storage_time), _("minimal time interval (in seconds) for image storage (default: 60s)")},
+    {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("save log to this file")},
     end_option
 };
 
@@ -85,4 +87,3 @@ glob_pars *parse_args(int argc, char **argv){
     }
     return &G;
 }
-

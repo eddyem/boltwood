@@ -21,6 +21,7 @@
 
 #include "usefull_macros.h"
 #include <time.h>
+#include <linux/limits.h> // PATH_MAX
 
 /**
  * function for different purposes that need to know time intervals
@@ -389,6 +390,8 @@ int str2double(double *num, const char *str){
 }
 
 FILE *Flog = NULL; // log file descriptor
+char *logname = NULL;
+time_t log_open_time = 0;
 /**
  * Try to open log file
  * if failed show warning message
@@ -399,16 +402,29 @@ void openlogfile(char *name){
         return;
     }
     green(_("Try to open log file %s in append mode\n"), name);
-    if(!(Flog = fopen(name, "a")))
+    if(!(Flog = fopen(name, "a"))){
         WARN(_("Can't open log file"));
+        return;
+    }
+    log_open_time = time(NULL);
+    logname = name;
 }
 
 /**
- * Save message to log file
+ * Save message to log file, rotate logs every 24 hours
  */
 int putlog(const char *fmt, ...){
     if(!Flog) return 0;
     time_t t_now = time(NULL);
+    if(t_now - log_open_time > 86400){ // rotate log
+        fprintf(Flog, "\n\t\t%sRotate log\n", ctime(&t_now));
+        fclose(Flog);
+        char newname[PATH_MAX];
+        snprintf(newname, PATH_MAX, "%s.old", logname);
+        if(rename(logname, newname)) WARN("rename()");
+        openlogfile(logname);
+        if(!Flog) return 0;
+    }
     int i = fprintf(Flog, "\n\t\t%s", ctime(&t_now));
     va_list ar;
     va_start(ar, fmt);

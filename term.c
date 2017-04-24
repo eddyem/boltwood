@@ -135,12 +135,10 @@ int send_cmd(uint8_t cmd){
 void try_connect(char *device){
     if(!device) return;
     uint8_t tmpbuf[4096];
-    green(_("Connecting to %s... "), device);
     fflush(stdout);
     tty_init(device);
     read_tty(tmpbuf, 4096); // clear rbuf
-    green("Ok!");
-    printf("\n\n");
+    putlog("Connected to %s", device);
 }
 
 // check CRC and return 0 if all OK
