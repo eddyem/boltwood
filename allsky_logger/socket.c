@@ -150,30 +150,35 @@ ewhile:
 /**
  * wait for answer from socket
  * @param sock - socket fd
- * @return 0 in case of error or timeout, 1 in case of socket ready
+ * @return 0 if data is absent, 1 in case of socket ready, -1 if socket closed or error occured
  */
 static int waittoread(int sock){
-    fd_set fds;
+    fd_set fds, efds;
     struct timeval timeout;
     int rc;
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000; // wait not more than 100ms
     FD_ZERO(&fds);
+    FD_ZERO(&efds);
     FD_SET(sock, &fds);
+    FD_SET(sock, &efds);
     do{
-        rc = select(sock+1, &fds, NULL, NULL, &timeout);
+        rc = select(sock+1, &fds, NULL, &efds, &timeout);
         if(rc < 0){
             if(errno != EINTR){
+                putlog("Server not available");
                 WARN("select()");
-                return 0;
+                return -1;
             }
             continue;
         }
         break;
     }while(1);
-    if(FD_ISSET(sock, &fds)) return 1;
+    if(FD_ISSET(sock, &fds))  return  1;
+    if(FD_ISSET(sock, &efds)) return -1; // exception - socket closed
     return 0;
 }
+
 
 /**
  * Open given FITS file, check it and add to inotify
@@ -181,6 +186,7 @@ static int waittoread(int sock){
  * @return inotify file descriptor
  */
 int watch_fits(char *name){
+    FNAME();
     static int fd = -1, wd = -1;
     if(fd > 0 && wd > 0){
         inotify_rm_watch(fd, wd);
@@ -215,6 +221,7 @@ int watch_fits(char *name){
  * test if user can write something to path & make CWD
  */
 static void test_path(char *path){
+    FNAME();
     if(path){
         if(chdir(path)){
             putlog("Can't chdir(%s)", path);
@@ -229,13 +236,55 @@ static void test_path(char *path){
 }
 
 /**
+ * try to connect to Boltwood's server
+ * @return file descriptor of opened socket or -1
+ */
+static int try_to_connect(){
+    int sock = -1;
+    struct addrinfo hints, *res, *p;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+    putlog("Try to connect to %s:%s", G->server, G->port);
+    if(getaddrinfo(G->server, G->port, &hints, &res) != 0){
+        putlog("getaddrinfo()");
+        return -1;
+    }
+    struct sockaddr_in *ia = (struct sockaddr_in*)res->ai_addr;
+    char str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(ia->sin_addr), str, INET_ADDRSTRLEN);
+    DBG("canonname: %s, port: %u, addr: %s\n", res->ai_canonname, ntohs(ia->sin_port), str);
+    // loop through all the results and bind to the first we can
+    for(p = res; p != NULL; p = p->ai_next){
+        if((sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+            WARN("socket");
+            continue;
+        }
+        if(connect(sock, p->ai_addr, p->ai_addrlen) == -1){
+            WARN("connect()");
+            close(sock);
+            continue;
+        }
+        break; // if we get here, we have a successfull connection
+    }
+    if(p == NULL || sock < 0){
+        putlog("failed to bind socket");
+        return -1;
+    }
+    freeaddrinfo(res);
+    putlog("Connection established");
+    return sock;
+}
+
+/**
  * Client daemon itself
+ * If sock < 0 try to reconnect after every image saving
  * @param FITSpath - path to file watched
  * @param infd - inotify file descriptor
  * @param sock - socket's file descriptor
  */
 static void client_(char *FITSpath, int infd, int sock){
-    if(sock < 0) return;
     size_t Bufsiz = BUFLEN;
     char *recvBuff = MALLOC(char, Bufsiz);
     datarecord *last_good_msrment = NULL;
@@ -250,6 +299,7 @@ static void client_(char *FITSpath, int infd, int sock){
             Bufsiz += 1024;
             recvBuff = realloc(recvBuff, Bufsiz);
             if(!recvBuff){
+                putlog("realloc() error");
                 WARN("realloc()");
                 return;
             }
@@ -265,7 +315,7 @@ static void client_(char *FITSpath, int infd, int sock){
                 continue;
             putlog("poll() error");
             ERR("poll()");
-            return;
+            return; // not reached
         }
         if(poll_num > 0){
             DBG("changed?");
@@ -292,18 +342,24 @@ static void client_(char *FITSpath, int infd, int sock){
                     }
                 }
                 fds.fd = watch_fits(FITSpath);
+                if(sock < 0) sock = try_to_connect(); // try to reconnect if disconnected
             }
         }
-        if(!waittoread(sock)) continue;
+        if(sock < 0) continue;
+        int rd = waittoread(sock);
+        if(rd < 0) sock = -1; // signal that socket disconnected & we need to try to connect
+        if(rd < 1) continue;
         size_t offset = 0;
         do{
             rlc(offset);
             ssize_t n = read(sock, &recvBuff[offset], Bufsiz - offset);
             if(!n){
-                putlog("socket disconnected");
+                putlog("nothing to read?");
+                offset = 0;
                 break;
             }
             if(n < 0){
+                offset = 0;
                 putlog("read() error");
                 WARN("read");
                 break;
@@ -312,8 +368,8 @@ static void client_(char *FITSpath, int infd, int sock){
         }while(waittoread(sock));
         if(!offset){
             putlog("socket disconnected");
-            WARN("Socket closed\n");
-            return;
+            sock = -1;
+            continue;
         }
         rlc(offset);
         recvBuff[offset] = 0;
@@ -325,10 +381,14 @@ static void client_(char *FITSpath, int infd, int sock){
 /**
  * Connect to socket and run daemon service
  */
-void daemonize(glob_pars *G){
+void daemonize(){
+    FNAME();
     char resolved_path[PATH_MAX];
     // get full path to FITS file
-    if(!realpath(G->filename, resolved_path)) ERR("realpath()");
+    if(!realpath(G->filename, resolved_path)){
+        putlog("realpath() error");
+        ERR("realpath()");
+    }
     // open FITS file & add it to inotify
     int fd = watch_fits(G->filename);
     // CD to archive directory if user wants
@@ -336,6 +396,7 @@ void daemonize(glob_pars *G){
     minstoragetime = G->min_storage_time;
     // run fork before socket opening to prevent daemon's death if there's no network
     #ifndef EBUG
+    putlog("daemonize");
     if(daemon(1, 0)){
         putlog("daemon() error");
         ERR("daemon()");
@@ -355,40 +416,8 @@ void daemonize(glob_pars *G){
         }
     }
     #endif
-    int sock = -1;
-    struct addrinfo hints, *res, *p;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-    DBG("connect to %s:%s", G->server, G->port);
-    if(getaddrinfo(G->server, G->port, &hints, &res) != 0){
-        ERR("getaddrinfo");
-    }
-    struct sockaddr_in *ia = (struct sockaddr_in*)res->ai_addr;
-    char str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(ia->sin_addr), str, INET_ADDRSTRLEN);
-    DBG("canonname: %s, port: %u, addr: %s\n", res->ai_canonname, ntohs(ia->sin_port), str);
-    // loop through all the results and bind to the first we can
-    for(p = res; p != NULL; p = p->ai_next){
-        if((sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-            WARN("socket");
-            continue;
-        }
-        if(connect(sock, p->ai_addr, p->ai_addrlen) == -1){
-            WARN("connect()");
-            close(sock);
-            continue;
-        }
-        break; // if we get here, we have a successfull connection
-    }
-    if(p == NULL){
-        putlog("failed to bind socket");
-        // looped off the end of the list with no successful bind
-        ERRX("failed to bind socket");
-    }
-    freeaddrinfo(res);
+    int sock = try_to_connect();
     client_(resolved_path, fd, sock);
-    close(sock);
+    if(sock > 0) close(sock);
     signals(0);
 }

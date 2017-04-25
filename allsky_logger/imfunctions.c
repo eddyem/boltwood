@@ -235,6 +235,7 @@ void store_fits(char *name, datarecord *data){
             fits_report_error(stderr, status);
     }
     if(data){
+        putlog("add boltwood's data");
         DBG("Boltwood data");
         // now the file copied -> add header from Boltwood's sensor
         while(data->varname){
@@ -263,6 +264,7 @@ ret:
     }
     // as cfitsio removes old file instead of trunkate it, we need to refresh inotify every time!
     if(chdir(oldwd)){ // return back to BD root directory
+        putlog("Can't chdir");
         ERR("Can't chdir");
     };
 }

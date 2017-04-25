@@ -394,6 +394,7 @@ time_t log_open_time = 0;
  * if failed show warning message
  */
 void openlogfile(char *name){
+    FNAME();
     if(!name){
         WARNX(_("Need filename"));
         return;
@@ -405,6 +406,7 @@ void openlogfile(char *name){
     }
     log_open_time = time(NULL);
     logname = name;
+    DBG("log file %s opened, time: %ld", name, log_open_time);
 }
 
 /**

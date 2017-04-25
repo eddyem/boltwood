@@ -30,6 +30,8 @@ void signals(int signo){
     exit(signo);
 }
 
+glob_pars *G; // global - for socket.c
+
 int main(int argc, char **argv){
     initial_setup();
     signal(SIGTERM, signals); // kill (-15) - quit
@@ -37,10 +39,11 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    glob_pars *G = parse_args(argc, argv);
+    G = parse_args(argc, argv);
     if(!G->server) ERRX(_("Please, specify server name"));
     if(!G->filename) ERRX(_("Please, specify the name of input FITS file"));
     if(G->logfile) openlogfile(G->logfile);
-    daemonize(G);
+    DBG("Opened, try to daemonize");
+    daemonize();
     return 0;
 }

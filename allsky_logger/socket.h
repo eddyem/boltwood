@@ -45,7 +45,9 @@ typedef struct{
     bdata data;             // data itself
 } datarecord;
 
-void daemonize(glob_pars *G);
+extern glob_pars *G; // from main.c
+
+void daemonize();
 int watch_fits(char *name);
 
 #endif // __SOCKET_H__

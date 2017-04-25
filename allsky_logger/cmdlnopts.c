@@ -30,7 +30,7 @@
  * here are global parameters initialisation
  */
 int help;
-glob_pars  G;
+static glob_pars  G;
 
 #define DEFAULT_COMDEV  "/dev/ttyUSB0"
 //            DEFAULTS
