@@ -27,6 +27,7 @@
 #include "socket.h"
 
 void signals(int signo){
+    putlog("Main process died");
     exit(signo);
 }
 

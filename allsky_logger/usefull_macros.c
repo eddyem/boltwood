@@ -399,7 +399,7 @@ void openlogfile(char *name){
         WARNX(_("Need filename"));
         return;
     }
-    green(_("Try to open log file %s in append mode\n"), name);
+    //green(_("Try to open log file %s in append mode\n"), name);
     if(!(Flog = fopen(name, "a"))){
         WARN(_("Can't open log file"));
         return;

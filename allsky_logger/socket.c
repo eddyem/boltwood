@@ -174,8 +174,8 @@ static int waittoread(int sock){
         }
         break;
     }while(1);
-    if(FD_ISSET(sock, &fds))  return  1;
     if(FD_ISSET(sock, &efds)) return -1; // exception - socket closed
+    if(FD_ISSET(sock, &fds))  return  1;
     return 0;
 }
 
@@ -308,7 +308,15 @@ static void client_(char *FITSpath, int infd, int sock){
     }
     DBG("Start polling");
     putlog("Start polling");
+    time_t wd_time = time(NULL); // watchdog time
+    time_t wd_period = 60; // watchdog period: 1 minute
     while(1){
+        // check watchdog
+        if(time(NULL) - wd_time > wd_period){
+            putlog("Watchdog triggered, need reconnection!");
+            if(sock > 0) close(sock);
+            sock = try_to_connect();
+        }
         poll_num = poll(&fds, 1, 1);
         if(poll_num == -1){
             if (errno == EINTR)
@@ -325,6 +333,7 @@ static void client_(char *FITSpath, int infd, int sock){
                     putlog("read() error");
                     ERR("read");
                 }else{
+                    putlog("file changed");
                     DBG("file changed");
                     usleep(100000); // wait a little for file changes
                     if(dtime() - lastTstorage > minstoragetime){
@@ -347,8 +356,12 @@ static void client_(char *FITSpath, int infd, int sock){
         }
         if(sock < 0) continue;
         int rd = waittoread(sock);
-        if(rd < 0) sock = -1; // signal that socket disconnected & we need to try to connect
-        if(rd < 1) continue;
+        if(rd < 0){ // error
+            close(sock);
+            sock = -1; // signal that socket disconnected & we need to try to connect
+        }
+        if(rd < 1) continue; // nothing to read
+        wd_time = time(NULL); // refresh timer - socket is alive
         size_t offset = 0;
         do{
             rlc(offset);
@@ -383,16 +396,6 @@ static void client_(char *FITSpath, int infd, int sock){
  */
 void daemonize(){
     FNAME();
-    char resolved_path[PATH_MAX];
-    // get full path to FITS file
-    if(!realpath(G->filename, resolved_path)){
-        putlog("realpath() error");
-        ERR("realpath()");
-    }
-    // open FITS file & add it to inotify
-    int fd = watch_fits(G->filename);
-    // CD to archive directory if user wants
-    test_path(G->cwd);
     minstoragetime = G->min_storage_time;
     // run fork before socket opening to prevent daemon's death if there's no network
     #ifndef EBUG
@@ -416,7 +419,17 @@ void daemonize(){
         }
     }
     #endif
+    char resolved_path[PATH_MAX];
+    // get full path to FITS file
+    if(!realpath(G->filename, resolved_path)){
+        putlog("realpath() error");
+        ERR("realpath()");
+    }
+    // CD to archive directory if user wants
+    test_path(G->cwd);
     int sock = try_to_connect();
+    // open FITS file & add it to inotify
+    int fd = watch_fits(G->filename);
     client_(resolved_path, fd, sock);
     if(sock > 0) close(sock);
     signals(0);

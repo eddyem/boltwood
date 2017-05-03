@@ -141,21 +141,25 @@ static void gotodir(char *relpath){ // create directory structure
  * @return 1 if it's dark
  */
 int fits_is_dark(char *name){
-    int ret = 0;
-    mmapbuf *buf = My_mmap(name);
-    if(!buf) return 0;
-    char *key = memmem(buf->data, buf->len, "IMAGETYP", 8);
-    if(!key) goto light;
-    if(buf->len - (key - buf->data) < 30) goto light;
-    key += 9;
-    char *dark = memmem(key, 20, "'dark", 5);
-    if(dark){
-        DBG("DARK!");
+    fitsfile *fptr = NULL;
+    int status = 0, ret = 0;
+    if(fits_open_file(&fptr, name, READONLY, &status)){
+        putlog("%s not a fits file!", name);
+        goto light;
+    }
+    // test image size
+    char imtype[FLEN_KEYWORD];
+    if(fits_read_key(fptr, TSTRING, "IMAGETYP", imtype, NULL, &status)){
+        putlog("Err: IMAGETYP not found");
+        goto light;
+    }
+    if(strncmp(imtype, "dark", 4) == 0){
+        putlog("Dark image");
         ret = 1;
     }
 light:
-    My_munmap(buf);
-    DBG("LIGHT");
+    status = 0;
+    if(fptr) fits_close_file(fptr, &status);
     return ret;
 }
 
